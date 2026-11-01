@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+jobs:
+  storage-engine:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: storage-engine
+    env:
+      COVERAGE_THRESHOLD: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: storage-engine/go.mod
+          cache-dependency-path: storage-engine/go.sum
+
+      - name: Install Fyne system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Run gofmt on:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test with coverage
+        run: |
+          if [ -z "$(go list ./internal/... 2>/dev/null)" ]; then
+            echo "No packages in internal/ yet, skipping tests"
+            exit 0
+          fi
+          go test -race -coverprofile=coverage.out ./internal/...
+
+      - name: Coverage threshold
+        run: |
+          if [ ! -f coverage.out ]; then
+            echo "No coverage profile, skipping"
+            exit 0
+          fi
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ { sub("%", "", $3); print $3 }')
+          echo "Total coverage: ${total}% (threshold ${COVERAGE_THRESHOLD}%)"
+          awk -v t="$total" -v min="$COVERAGE_THRESHOLD" 'BEGIN { exit !(t + 0 >= min + 0) }' || {
+            echo "Coverage is below ${COVERAGE_THRESHOLD}%"
+            exit 1
+          }
