@@ -1,0 +1,18 @@
+# Database files
+*.dat
+*.idx
+backups/
+
+# Build output
+storage-engine/vetdb
+storage-engine/bench
+/bin/
+
+# Test artifacts
+coverage.out
+*.test
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
