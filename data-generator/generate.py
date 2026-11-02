@@ -1,13 +1,14 @@
+from datetime import timedelta
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from faker import Faker
-from datetime import timedelta
 
 import config
 
 OUT = Path(__file__).parent / "data" / "raw"
+
 
 def make_phone(rng, used: set[str]) -> str:
     while True:
@@ -16,11 +17,13 @@ def make_phone(rng, used: set[str]) -> str:
             used.add(phone)
             return phone
 
+
 def make_branches() -> pd.DataFrame:
     rows = []
     for i, (name, address) in enumerate(config.BRANCHES, start=1):
         rows.append({"id": i, "name": name, "address": address})
     return pd.DataFrame(rows)
+
 
 def make_doctors(rng, fake, branches: pd.DataFrame, used_phones: set[str]) -> pd.DataFrame:
     rows = []
@@ -38,16 +41,18 @@ def make_doctors(rng, fake, branches: pd.DataFrame, used_phones: set[str]) -> pd
             days_before = int(rng.integers(0, 3 * 365))
             hired_at = config.START - timedelta(days=days_before)
 
-        rows.append({
-            "id": i,
-            "last_name": last,
-            "first_name": first,
-            "middle_name": middle,
-            "phone": make_phone(rng, used_phones),
-            "specialization": rng.choice(config.SPECIALIZATIONS, p=config.SPECIALIZATION_WEIGHTS),
-            "branch_id": (i - 1) % len(branches) + 1,
-            "hired_at": hired_at,
-        })
+        rows.append(
+            {
+                "id": i,
+                "last_name": last,
+                "first_name": first,
+                "middle_name": middle,
+                "phone": make_phone(rng, used_phones),
+                "specialization": rng.choice(config.SPECIALIZATIONS, p=config.SPECIALIZATION_WEIGHTS),
+                "branch_id": (i - 1) % len(branches) + 1,
+                "hired_at": hired_at,
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -66,6 +71,7 @@ def main() -> None:
     doctors = make_doctors(rng, fake, branches, used_phones)
     doctors.to_csv(OUT / "doctors.csv", index=False)
     print(f"doctors: {len(doctors)}")
+
 
 if __name__ == "__main__":
     main()
