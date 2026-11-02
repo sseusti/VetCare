@@ -2,16 +2,12 @@
 package main
 
 import (
-	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/widget"
+
+	"github.com/sseusti/VetCare/storage-engine/internal/ui"
 )
 
 func main() {
 	a := app.NewWithID("com.sseusti.vetcare")
-	w := a.NewWindow("VetCare")
-	w.SetContent(container.NewCenter(widget.NewLabel("VetCare")))
-	w.Resize(fyne.NewSize(900, 600))
-	w.ShowAndRun()
+	ui.New(a).Window().ShowAndRun()
 }
