@@ -1,5 +1,5 @@
 -- Проверки метрик: суммы сходятся с витринами, доли и проценты в своих границах,
--- накопительные величины не убывают. В здоровых данных везде 0; иначе скрипт падает.
+-- накопительные величины не убывают, сплит эксперимента корректен. В здоровых данных везде 0; иначе скрипт падает.
 --
 -- Запуск (после make metrics):
 --   docker compose exec -T postgres psql -U vetcare -d vetcare -v ON_ERROR_STOP=1 < dwh/06_metric_checks.sql
@@ -106,6 +106,24 @@ SELECT 'owner_status: статус есть у каждого клиента с 
 UNION ALL
 SELECT 'churn_summary: доли статусов дают 100%',
        CASE WHEN abs((SELECT sum(owners_pct) FROM metrics.churn_summary) - 100) <= 0.5
+            THEN 0 ELSE 1 END
+
+UNION ALL
+SELECT 'experiment: в эксперименте только записи хотя бы за день', count(*)
+FROM metrics.experiment_visits
+WHERE period = 'experiment' AND lead_days < 1
+
+UNION ALL
+SELECT 'experiment: до начала эксперимента напоминаний не было', count(*)
+FROM mart.fact_visits
+WHERE reminder_sent AND visit_date < (SELECT start_date FROM metrics.experiment_period)
+
+UNION ALL
+-- SRM: хи-квадрат для сплита 50/50; 10.83 — критическое значение при p = 0.001 и одной степени свободы
+SELECT 'experiment: сплит 50/50 без SRM (χ² < 10.83)',
+       CASE WHEN (SELECT (count(*) FILTER (WHERE ab_group = 'control') - count(*) / 2.0) ^ 2 / (count(*) / 2.0)
+                         + (count(*) FILTER (WHERE ab_group = 'treatment') - count(*) / 2.0) ^ 2 / (count(*) / 2.0)
+                  FROM metrics.experiment_visits WHERE period = 'experiment') < 10.83
             THEN 0 ELSE 1 END;
 
 SELECT check_name, problems, CASE WHEN problems = 0 THEN 'OK' ELSE 'FAIL' END AS result
