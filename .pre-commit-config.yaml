@@ -13,6 +13,15 @@ repos:
       - id: check-added-large-files
         args: [--maxkb=1024]
 
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.9
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+        files: ^data-generator/
+      - id: ruff-format
+        files: ^data-generator/
+
   - repo: local
     hooks:
       - id: gofmt
@@ -33,4 +42,11 @@ repos:
         entry: bash -c 'cd storage-engine && go test -short ./...'
         language: system
         files: ^storage-engine/.*\.(go|mod|sum)$
+        pass_filenames: false
+
+      - id: pytest-data-generator
+        name: pytest (data-generator)
+        entry: bash -c 'cd data-generator && .venv/bin/python -m pytest -q'
+        language: system
+        files: ^data-generator/.*\.(py|toml|txt)$
         pass_filenames: false

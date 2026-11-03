@@ -16,3 +16,9 @@ coverage.out
 .DS_Store
 .idea/
 .vscode/
+.env
+.venv/
+data/
+__pycache__
+.pytest_cache/
+.ruff_cache/
