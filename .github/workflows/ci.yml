@@ -90,7 +90,34 @@ jobs:
       - name: Tests
         run: pytest -q
 
-  dwh-schema:
+  analysis:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: analysis
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: analysis/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format
+        run: ruff format --check .
+
+      - name: Tests
+        run: pytest -q
+
+  dwh:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -115,14 +142,77 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Apply schema
-        run: psql -v ON_ERROR_STOP=1 -q -f dwh/01_schema.sql
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            data-generator/requirements.txt
+            analysis/requirements.txt
 
-      - name: Apply schema again (script must be re-runnable)
-        run: psql -v ON_ERROR_STOP=1 -q -f dwh/01_schema.sql
-
-      - name: Check tables
+      - name: Generate data
+        working-directory: data-generator
         run: |
-          tables=$(psql -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'oltp'")
-          echo "oltp tables: $tables"
-          test "$tables" -eq 8
+          pip install -r requirements.txt
+          python generate.py
+
+      # Скрипты читают CSV из /data/raw — там они лежат в контейнере локально.
+      - name: Expose CSV at /data/raw
+        run: |
+          sudo mkdir -p /data
+          sudo ln -s "$GITHUB_WORKSPACE/data-generator/data/raw" /data/raw
+
+      - name: Apply schema twice (script must be re-runnable)
+        run: |
+          psql -v ON_ERROR_STOP=1 -q -f dwh/01_schema.sql
+          psql -v ON_ERROR_STOP=1 -q -f dwh/01_schema.sql
+
+      - name: Load data twice (script must be re-runnable)
+        run: |
+          psql -v ON_ERROR_STOP=1 -q -f dwh/02_load.sql
+          psql -v ON_ERROR_STOP=1 -q -f dwh/02_load.sql
+
+      - name: Data quality checks
+        run: psql -v ON_ERROR_STOP=1 -f dwh/03_checks.sql
+
+      - name: Build marts twice (script must be re-runnable)
+        run: |
+          psql -v ON_ERROR_STOP=1 -q -f dwh/04_marts.sql
+          psql -v ON_ERROR_STOP=1 -q -f dwh/04_marts.sql
+
+      - name: Mart checks
+        run: psql -v ON_ERROR_STOP=1 -f dwh/05_mart_checks.sql
+
+      - name: Build metrics twice (scripts must be re-runnable)
+        run: |
+          for run in 1 2; do
+            for f in dwh/metrics/*.sql; do
+              psql -v ON_ERROR_STOP=1 -q -f "$f"
+            done
+          done
+
+      - name: Metric checks
+        run: psql -v ON_ERROR_STOP=1 -f dwh/06_metric_checks.sql
+
+      - name: Export dashboard data
+        run: |
+          mkdir -p dwh/export
+          for t in visits cohorts lifecycle owners experiment experiment_weekly experiment_naive; do
+            printf '%s\n' "\\copy (SELECT * FROM metrics.dashboard_$t) TO STDOUT WITH (FORMAT csv, HEADER)" \
+              | psql -v ON_ERROR_STOP=1 -q > "dwh/export/$t.csv"
+            test "$(wc -l < "dwh/export/$t.csv")" -gt 1
+          done
+
+      # CSV для DataLens можно скачать со страницы запуска в Actions, не поднимая базу локально.
+      - name: Upload dashboard data
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-data
+          path: dwh/export/*.csv
+
+      # Ноутбук выполняется на только что собранной базе: ломается запрос или код — падает CI.
+      - name: Run A/B analysis notebook
+        working-directory: analysis
+        run: |
+          pip install -r requirements.txt
+          jupyter nbconvert --to notebook --execute ab_sms_reminders.ipynb --output-dir /tmp --output executed
