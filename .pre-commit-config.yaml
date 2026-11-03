@@ -16,11 +16,12 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.9
     hooks:
+      # Каждый Python-проект проверяется со своим pyproject.toml (ruff находит его сам).
       - id: ruff-check
         args: [--fix]
-        files: ^data-generator/
+        files: ^(data-generator|analysis)/
       - id: ruff-format
-        files: ^data-generator/
+        files: ^(data-generator|analysis)/
 
   - repo: local
     hooks:
@@ -49,4 +50,11 @@ repos:
         entry: bash -c 'cd data-generator && .venv/bin/python -m pytest -q'
         language: system
         files: ^data-generator/.*\.(py|toml|txt)$
+        pass_filenames: false
+
+      - id: pytest-analysis
+        name: pytest (analysis)
+        entry: bash -c 'cd analysis && .venv/bin/python -m pytest -q'
+        language: system
+        files: ^analysis/.*\.(py|toml|txt)$
         pass_filenames: false
