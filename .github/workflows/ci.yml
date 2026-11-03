@@ -145,3 +145,11 @@ jobs:
 
       - name: Data quality checks
         run: psql -v ON_ERROR_STOP=1 -f dwh/03_checks.sql
+
+      - name: Build marts twice (script must be re-runnable)
+        run: |
+          psql -v ON_ERROR_STOP=1 -q -f dwh/04_marts.sql
+          psql -v ON_ERROR_STOP=1 -q -f dwh/04_marts.sql
+
+      - name: Mart checks
+        run: psql -v ON_ERROR_STOP=1 -f dwh/05_mart_checks.sql
