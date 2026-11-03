@@ -10,7 +10,7 @@
 | `04_marts.sql` | staging (`stg`) и витрины по схеме «звезда» (`mart`) |
 | `05_mart_checks.sql` | проверки витрин: полнота фактов, сходимость выручки с `oltp` |
 | `metrics/*.sql` | бизнес-метрики — представления в схеме `metrics`: выручка, врачи, неявки, загрузка, когорты, LTV, отток |
-| `06_metric_checks.sql` | проверки метрик: суммы сходятся с витринами, доли дают 100%, LTV не убывает, сплит A/B-теста без перекоса |
+| `06_metric_checks.sql` | проверки метрик: суммы сходятся с витринами, доли дают 100%, LTV не убывает, сплит A/B-теста без перекоса, данные дашборда полные |
 
 ## Быстрый старт
 
@@ -18,10 +18,11 @@
 
 ```bash
 make all      # база, данные, схема, загрузка, витрины, метрики и все проверки
+make export   # CSV для дашборда в dwh/export/
 make psql     # открыть консоль базы
 ```
 
-По отдельности: `make up`, `make data`, `make schema`, `make load`, `make marts`, `make metrics`, `make checks`. Все скрипты можно запускать повторно.
+По отдельности: `make up`, `make data`, `make schema`, `make load`, `make marts`, `make metrics`, `make checks`, `make export`. Все скрипты можно запускать повторно.
 
 ## Загрузка данных
 
@@ -151,6 +152,7 @@ mart (витрины)  -->  metrics (представления: ответы н
 | `06_ltv.sql` | сколько приносит клиент? | `cohort_ltv`, `ltv_curve`, `ltv_12m_by_species` |
 | `07_churn.sql` | кого мы теряем? | `owner_status`, `churn_summary`, `churn_by_pets`, `at_risk_owners` — кому напомнить первым |
 | `08_experiment.sql` | снижают ли SMS неявки? | `experiment_visits` (участники A/B-теста с группой и ковариатами), `experiment_summary`, `experiment_naive_comparison`, `experiment_weekly` |
+| `09_dashboard.sql` | данные для дашборда | `dashboard_visits` (приём с подписями для BI), `dashboard_cohorts`, `dashboard_lifecycle`, `dashboard_owners`, `dashboard_experiment*` — выгружаются в CSV командой `make export` |
 
 ```sql
 SELECT * FROM metrics.revenue_monthly;
@@ -166,6 +168,7 @@ SELECT * FROM metrics.cohort_retention WHERE month_n <= 12 ORDER BY cohort_month
 - **LTV делится на всю когорту**, а не на активных: ушедшие клиенты тоже входят в среднее.
 - **Отток — по давности последнего визита**: до 180 дней — активный, 181–365 — засыпающий, больше года — ушёл. Плановый осмотр раз в год, поэтому меньше года без визита ещё не отток. Пороги — договорённость с бизнесом.
 - **В A/B-тест входят только записи хотя бы за день**: при записи в тот же день SMS не отправляют, и в сравнении «с SMS / без SMS» по всем приёмам они смещают контроль. Статистический разбор — в [`analysis/`](../analysis).
+- **Дашборд получает данные файлами.** DataLens работает в облаке и не видит базу в локальном Docker, поэтому `make export` выгружает представления `metrics.dashboard_*` в `dwh/export/*.csv` (в git не попадают), а CI прикладывает эти CSV к каждому запуску. Как собрать дашборд — в [`dashboard/`](../dashboard).
 - **После `make marts` нужен `make metrics`**: витрины пересоздаются через `DROP ... CASCADE` и забирают представления с собой. `make all` делает это сам.
 
 Что видно в данных:
