@@ -10,6 +10,9 @@ import (
 
 // Insert adds a visit. O(1) on average: a key lookup for uniqueness, one
 // slot allocation, one record write and a head insert into two chains.
+//
+// The record is written before any index points at it: first the record
+// with its links, then the two chains, then the key index last.
 func (d *DB) Insert(v record.Visit) error {
 	if d.heap == nil {
 		return ErrClosed
@@ -29,13 +32,20 @@ func (d *DB) Insert(v record.Visit) error {
 		return err
 	}
 	rec := record.Record{Live: true, Visit: v, Links: record.NoLinks()}
-	for _, c := range d.chains() {
-		if err := d.link(c, off, &rec); err != nil {
+	chains := d.chains()
+	heads := make([]int64, len(chains))
+	for i, c := range chains {
+		if heads[i], err = d.prepare(c, &rec); err != nil {
 			return err
 		}
 	}
 	if err := d.heap.Write(off, rec); err != nil {
 		return err
+	}
+	for i, c := range chains {
+		if err := d.attach(c, off, rec, heads[i]); err != nil {
+			return err
+		}
 	}
 	return d.key.Put(hashfile.Int32Key(v.ID), off)
 }
@@ -83,23 +93,34 @@ func (d *DB) Update(id int32, v record.Visit) error {
 		}
 	}
 
-	old := rec.Visit
+	// Chains whose value changes: leave the old chain, write the record with
+	// the new links, then join the new chain — as in Insert, the record is on
+	// disk before an index points at it.
+	var moved []chain
 	for _, c := range d.chains() {
-		if c.value(old) == c.value(v) {
-			continue
+		if c.value(rec.Visit) != c.value(v) {
+			moved = append(moved, c)
 		}
+	}
+	for _, c := range moved {
 		if err := d.unlink(c, &rec); err != nil {
 			return err
 		}
-		rec.Visit = v
-		if err := d.link(c, off, &rec); err != nil {
-			return err
-		}
-		rec.Visit = old
 	}
 	rec.Visit = v
+	heads := make([]int64, len(moved))
+	for i, c := range moved {
+		if heads[i], err = d.prepare(c, &rec); err != nil {
+			return err
+		}
+	}
 	if err := d.heap.Write(off, rec); err != nil {
 		return err
+	}
+	for i, c := range moved {
+		if err := d.attach(c, off, rec, heads[i]); err != nil {
+			return err
+		}
 	}
 
 	if v.ID != id {

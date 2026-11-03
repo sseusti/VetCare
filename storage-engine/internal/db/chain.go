@@ -35,20 +35,30 @@ func (d *DB) doctorChain() chain {
 
 func (d *DB) chains() []chain { return []chain{d.speciesChain(), d.doctorChain()} }
 
-// link puts the record at off at the head of its chain. O(1).
+// prepare sets the links of rec for the head of its chain, in memory only,
+// and returns the current head (NilOffset if the chain is empty). O(1).
 //
-// It updates the old head on disk and the index; the links of rec are set
-// in memory and the caller writes rec itself.
-func (d *DB) link(c chain, off int64, rec *record.Record) error {
-	key := []byte(c.value(rec.Visit))
-	head, ok, err := c.idx.Get(key)
+// Nothing is written: the caller writes rec first and then calls attach, so
+// an index never points at a record that is not on disk yet.
+func (d *DB) prepare(c chain, rec *record.Record) (int64, error) {
+	head, ok, err := c.idx.Get([]byte(c.value(rec.Visit)))
 	if err != nil {
-		return err
+		return 0, err
 	}
 	*c.prev(&rec.Links) = record.NilOffset
 	*c.next(&rec.Links) = record.NilOffset
-	if ok {
-		*c.next(&rec.Links) = head
+	if !ok {
+		return record.NilOffset, nil
+	}
+	*c.next(&rec.Links) = head
+	return head, nil
+}
+
+// attach makes the record at off, already written with the links from
+// prepare, the head of its chain: the old head points back at it and the
+// index points at it. O(1): at most one record write and one index write.
+func (d *DB) attach(c chain, off int64, rec record.Record, head int64) error {
+	if head != record.NilOffset {
 		h, err := d.heap.Read(head)
 		if err != nil {
 			return err
@@ -58,7 +68,7 @@ func (d *DB) link(c chain, off int64, rec *record.Record) error {
 			return err
 		}
 	}
-	return c.idx.Put(key, off)
+	return c.idx.Put([]byte(c.value(rec.Visit)), off)
 }
 
 // unlink removes the record at off from its chain by connecting its
