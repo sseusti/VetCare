@@ -1,5 +1,5 @@
 -- Проверки метрик: суммы сходятся с витринами, доли и проценты в своих границах,
--- накопительные величины не убывают, сплит эксперимента корректен. В здоровых данных везде 0; иначе скрипт падает.
+-- накопительные величины не убывают, сплит эксперимента корректен, данные дашборда полные. В здоровых данных везде 0; иначе скрипт падает.
 --
 -- Запуск (после make metrics):
 --   docker compose exec -T postgres psql -U vetcare -d vetcare -v ON_ERROR_STOP=1 < dwh/06_metric_checks.sql
@@ -124,7 +124,28 @@ SELECT 'experiment: сплит 50/50 без SRM (χ² < 10.83)',
        CASE WHEN (SELECT (count(*) FILTER (WHERE ab_group = 'control') - count(*) / 2.0) ^ 2 / (count(*) / 2.0)
                          + (count(*) FILTER (WHERE ab_group = 'treatment') - count(*) / 2.0) ^ 2 / (count(*) / 2.0)
                   FROM metrics.experiment_visits WHERE period = 'experiment') < 10.83
-            THEN 0 ELSE 1 END;
+            THEN 0 ELSE 1 END
+
+UNION ALL
+SELECT 'dashboard_visits: выручка = выручке витрины за период',
+       CASE WHEN (SELECT sum(revenue) FROM metrics.dashboard_visits)
+                 = (SELECT sum(revenue) FROM mart.fact_visits
+                    WHERE visit_date <= (SELECT last_date FROM metrics.period))
+            THEN 0 ELSE 1 END
+
+UNION ALL
+SELECT 'dashboard_visits: у каждого приёма есть подписи типа, статуса и группы', count(*)
+FROM metrics.dashboard_visits
+WHERE visit_type IS NULL OR status IS NULL OR ab_group IS NULL
+
+UNION ALL
+SELECT 'dashboard_visits: группы A/B совпадают с экспериментом',
+       abs((SELECT count(*) FROM metrics.dashboard_visits WHERE ab_group <> 'вне эксперимента')
+           - (SELECT count(*) FROM metrics.experiment_visits WHERE period = 'experiment'))
+
+UNION ALL
+SELECT 'dashboard_cohorts: клетка на каждую пару когорта × месяц',
+       abs((SELECT count(*) FROM metrics.dashboard_cohorts) - (SELECT count(*) FROM metrics.cohort_grid));
 
 SELECT check_name, problems, CASE WHEN problems = 0 THEN 'OK' ELSE 'FAIL' END AS result
 FROM metric_checks;
