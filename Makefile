@@ -3,7 +3,7 @@
 # psql запускается внутри контейнера и берёт пользователя и базу из его переменных (.env).
 PSQL = docker compose exec -T postgres sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -q'
 
-.PHONY: all up data schema load marts metrics checks ab analysis-venv psql
+.PHONY: all up data schema load marts metrics checks export ab analysis-venv psql
 
 all: up data schema load marts metrics checks ## всё с нуля: база, данные, схема, загрузка, витрины, метрики, проверки
 
@@ -29,6 +29,17 @@ checks: ## проверки качества данных, витрин и ме�
 	$(PSQL) < dwh/03_checks.sql
 	$(PSQL) < dwh/05_mart_checks.sql
 	$(PSQL) < dwh/06_metric_checks.sql
+
+# Таблицы для DataLens: представления metrics.dashboard_<имя> (dwh/metrics/09_dashboard.sql).
+DASHBOARD_TABLES = visits cohorts lifecycle owners experiment experiment_weekly experiment_naive
+
+export: ## выгрузить данные дашборда в dwh/export/*.csv для загрузки в DataLens
+	mkdir -p dwh/export
+	for t in $(DASHBOARD_TABLES); do \
+		printf '%s\n' "\\copy (SELECT * FROM metrics.dashboard_$$t) TO STDOUT WITH (FORMAT csv, HEADER)" \
+			| $(PSQL) > dwh/export/$$t.csv || exit 1; \
+		echo "dwh/export/$$t.csv: $$(($$(wc -l < dwh/export/$$t.csv) - 1)) строк"; \
+	done
 
 ab: ## пересчитать A/B-анализ: выполнить ноутбук на текущих данных базы и обновить графики
 	cd analysis && .venv/bin/jupyter nbconvert --to notebook --execute --inplace ab_sms_reminders.ipynb

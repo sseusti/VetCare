@@ -194,6 +194,22 @@ jobs:
       - name: Metric checks
         run: psql -v ON_ERROR_STOP=1 -f dwh/06_metric_checks.sql
 
+      - name: Export dashboard data
+        run: |
+          mkdir -p dwh/export
+          for t in visits cohorts lifecycle owners experiment experiment_weekly experiment_naive; do
+            printf '%s\n' "\\copy (SELECT * FROM metrics.dashboard_$t) TO STDOUT WITH (FORMAT csv, HEADER)" \
+              | psql -v ON_ERROR_STOP=1 -q > "dwh/export/$t.csv"
+            test "$(wc -l < "dwh/export/$t.csv")" -gt 1
+          done
+
+      # CSV для DataLens можно скачать со страницы запуска в Actions, не поднимая базу локально.
+      - name: Upload dashboard data
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-data
+          path: dwh/export/*.csv
+
       # Ноутбук выполняется на только что собранной базе: ломается запрос или код — падает CI.
       - name: Run A/B analysis notebook
         working-directory: analysis
