@@ -18,6 +18,19 @@ def make_phone(rng, used: set[str]) -> str:
             return phone
 
 
+def random_person(rng, fake) -> tuple[str, str, str]:
+    """Фамилия, имя и отчество одного пола."""
+    if rng.random() < 0.5:
+        return fake.last_name_male(), fake.first_name_male(), fake.middle_name_male()
+    return fake.last_name_female(), fake.first_name_female(), fake.middle_name_female()
+
+
+def save(df: pd.DataFrame, name: str) -> None:
+    """Пишет CSV без служебных колонок: те, что начинаются с «_», нужны только генератору."""
+    public = [c for c in df.columns if not c.startswith("_")]
+    df[public].to_csv(OUT / f"{name}.csv", index=False)
+
+
 def make_branches() -> pd.DataFrame:
     rows = []
     for i, (name, address) in enumerate(config.BRANCHES, start=1):
@@ -28,10 +41,7 @@ def make_branches() -> pd.DataFrame:
 def make_doctors(rng, fake, branches: pd.DataFrame, used_phones: set[str]) -> pd.DataFrame:
     rows = []
     for i in range(1, config.N_DOCTORS + 1):
-        if rng.random() < 0.5:
-            last, first, middle = fake.last_name_male(), fake.first_name_male(), fake.middle_name_male()
-        else:
-            last, first, middle = fake.last_name_female(), fake.first_name_female(), fake.middle_name_female()
+        last, first, middle = random_person(rng, fake)
 
         is_new = i > config.N_DOCTORS - config.N_NEW_DOCTORS
         if is_new:
@@ -56,21 +66,104 @@ def make_doctors(rng, fake, branches: pd.DataFrame, used_phones: set[str]) -> pd
     return pd.DataFrame(rows)
 
 
-def main() -> None:
-    rng = np.random.default_rng(config.SEED)
-    fake = Faker("ru_RU")
-    Faker.seed(config.SEED)
-    used_phones: set[str] = set()
+def make_owners(rng, fake, used_phones: set[str]) -> pd.DataFrame:
+    period_days = (config.END - config.START).days
+    rows = []
+    for i in range(1, config.N_OWNERS + 1):
+        last, first, middle = random_person(rng, fake)
+        if rng.random() < config.OWNERS_BEFORE_START:
+            registered_at = config.START - timedelta(days=int(rng.integers(1, config.OWNER_HISTORY_DAYS)))
+        else:
+            registered_at = config.START + timedelta(days=int(rng.integers(0, period_days + 1)))
+        rows.append(
+            {
+                "id": i,
+                "last_name": last,
+                "first_name": first,
+                "middle_name": middle,
+                "phone": make_phone(rng, used_phones),
+                "registered_at": registered_at,
+                # Насколько часто владелец ходит в клинику; используется при генерации приёмов.
+                "_loyalty": float(rng.beta(*config.LOYALTY_BETA)),
+            }
+        )
+    return pd.DataFrame(rows)
 
-    OUT.mkdir(parents=True, exist_ok=True)
+
+def make_pets(rng, owners: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    pet_id = 1
+    for owner in owners.itertuples():
+        n_pets = int(rng.choice(config.PETS_PER_OWNER, p=config.PETS_PER_OWNER_WEIGHTS))
+        for _ in range(n_pets):
+            species = str(rng.choice(config.SPECIES, p=config.SPECIES_WEIGHTS))
+            age_days = int(rng.integers(*config.PET_AGE_DAYS))
+            rows.append(
+                {
+                    "id": pet_id,
+                    "owner_id": owner.id,
+                    "name": str(rng.choice(config.PET_NAMES)),
+                    "species": species,
+                    "breed": str(rng.choice(config.BREEDS[species])),
+                    "color": str(rng.choice(config.COLORS)),
+                    "sex": str(rng.choice(["M", "F"])),
+                    "size": str(rng.choice(config.SIZES[species])),
+                    "birth_date": owner.registered_at - timedelta(days=age_days),
+                }
+            )
+            pet_id += 1
+    return pd.DataFrame(rows)
+
+
+def make_medical_cards(rng, pets: pd.DataFrame, owners: pd.DataFrame) -> pd.DataFrame:
+    # JOIN животных с владельцами: карта заводится в день регистрации владельца.
+    registered = pets.merge(
+        owners[["id", "registered_at"]].rename(columns={"id": "owner_id"}),
+        on="owner_id",
+        how="left",
+    )
+    rows = []
+    for card_id, pet in enumerate(registered.itertuples(), start=1):
+        chronic = str(rng.choice(config.CHRONIC_DISEASES)) if rng.random() < config.CHRONIC_SHARE else None
+        allergy = str(rng.choice(config.ALLERGIES)) if rng.random() < config.ALLERGY_SHARE else None
+        rows.append(
+            {
+                "id": card_id,
+                "pet_id": pet.id,
+                "chronic_diseases": chronic,
+                "allergies": allergy,
+                "created_at": pet.registered_at,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def build(seed: int = config.SEED) -> dict[str, pd.DataFrame]:
+    """Генерирует все таблицы в порядке зависимостей. Одинаковый seed — одинаковые данные."""
+    rng = np.random.default_rng(seed)
+    fake = Faker("ru_RU")
+    Faker.seed(seed)
+    used_phones: set[str] = set()  # общее для врачей и владельцев
 
     branches = make_branches()
-    branches.to_csv(OUT / "branches.csv", index=False)
-    print(f"branches: {len(branches)}")
-
     doctors = make_doctors(rng, fake, branches, used_phones)
-    doctors.to_csv(OUT / "doctors.csv", index=False)
-    print(f"doctors: {len(doctors)}")
+    owners = make_owners(rng, fake, used_phones)
+    pets = make_pets(rng, owners)
+    medical_cards = make_medical_cards(rng, pets, owners)
+    return {
+        "branches": branches,
+        "doctors": doctors,
+        "owners": owners,
+        "pets": pets,
+        "medical_cards": medical_cards,
+    }
+
+
+def main() -> None:
+    OUT.mkdir(parents=True, exist_ok=True)
+    for name, df in build().items():
+        save(df, name)
+        print(f"{name}: {len(df)}")
 
 
 if __name__ == "__main__":
