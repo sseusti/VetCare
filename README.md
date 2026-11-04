@@ -159,9 +159,10 @@ species.idx: "Кошка" → [приём 5] ⇄ [приём 3] ⇄ [приём 
 git clone https://github.com/sseusti/VetCare.git
 cd VetCare/storage-engine
 
-go run ./cmd/vetdb          # запустить приложение
-go test ./internal/...      # тесты
-go run ./cmd/bench          # замеры на 1k–1M записей
+go run ./cmd/seed -out ~/vetcare-demo   # демо-база на 300 приёмов
+go run ./cmd/vetdb                      # запустить приложение
+go test ./internal/...                  # тесты
+go run ./cmd/bench                      # замеры на 1k–1M записей
 ```
 
 В приложении: **Файл → Создать базу**, затем **Добавить**. Для поиска выберите поле, введите значение и нажмите **Найти** — в строке статуса будет видно, сколько занял поиск и шёл ли он по индексу.
