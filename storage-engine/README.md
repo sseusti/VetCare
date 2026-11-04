@@ -7,10 +7,13 @@
 ## Запуск
 
 ```bash
-go run ./cmd/vetdb          # приложение
-go test ./internal/...      # тесты
-go run ./cmd/bench          # замеры на 1k–1M записей → bench.csv
+go run ./cmd/seed -out ~/vetcare-demo   # демо-база на 300 приёмов
+go run ./cmd/vetdb                      # приложение: Файл → Открыть базу… → ~/vetcare-demo
+go test ./...                           # тесты
+go run ./cmd/bench                      # замеры на 1k–1M записей → bench.csv
 ```
+
+Демо-база — 300 приёмов за последние два месяца и следующие две недели: 8 видов животных, 8 врачей, все статусы. Размер задаётся флагом `-n`, одинаковый `-seed` даёт одинаковые данные.
 
 На macOS нужны Go 1.24+ и Xcode Command Line Tools (`xcode-select --install`); на Linux — пакеты для Fyne (`libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev`).
 
@@ -26,6 +29,7 @@ go run ./cmd/bench          # замеры на 1k–1M записей → bench
 | `internal/ui` | интерфейс на Fyne |
 | `cmd/vetdb` | точка входа приложения |
 | `cmd/bench` | замеры производительности |
+| `cmd/seed` | демо-база с реалистичными приёмами |
 
 База — папка из четырёх файлов: `visits.dat`, `key.idx`, `species.idx`, `doctor.idx`.
 
