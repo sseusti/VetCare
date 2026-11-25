@@ -1,0 +1,10 @@
+\set ON_ERROR_STOP on
+\encoding UTF8
+\pset pager off
+
+BEGIN;
+\ir 01_schema.sql
+\ir 02_seed.sql
+\ir 03_level1.sql
+\ir 04_level2.sql
+COMMIT;
